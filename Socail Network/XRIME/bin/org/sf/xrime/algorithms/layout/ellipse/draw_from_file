@@ -1,0 +1,226 @@
+#!/usr/bin/python
+"""\
+Copyright (C) liuchangyan@BUPT. 2009.
+ 
+Licensed under the Apache License, Version 2.0 (the "License"); you may not
+use this file except in compliance with the License. You may obtain a copy of
+the License at
+ 
+http://www.apache.org/licenses/LICENSE-2.0
+ 
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+License for the specific language governing permissions and limitations under
+the License.
+
+SVG.py - Construct/display SVG scenes.
+
+The following code is a lightweight wrapper around SVG files. The metaphor
+is to construct a scene, add objects to it, and then write it to a file
+to display it.
+
+This program uses ImageMagick to display the SVG files. ImageMagick also 
+does a remarkable job of converting SVG files into other formats.
+
+modify the original program from code.activestate.com to draw svg from
+xrime's output.
+"""
+
+import os
+import sys
+display_prog = 'display' # Command to execute to display images.
+      
+class Scene:
+    def __init__(self,name="svg",width=400,height=400):
+        self.name = name
+        self.items = []
+        self.width = width
+        self.height = height
+        return
+
+    def add(self,item): self.items.append(item)
+
+    def strarray(self):
+        var = ["<?xml version=\"1.0\"?>\n",
+               "<svg height=\"%d\" width=\"%d\" >\n" % (self.height,self.width),
+               " <g style=\"fill-opacity:1.0; stroke:black;\n",
+               "  stroke-width:0.5;\">\n"]
+        for item in self.items: var += item.strarray()            
+        var += [" </g>\n</svg>\n"]
+        return var
+
+    def write_svg(self,filename=None):
+        if filename:
+            self.svgname = filename
+        else:
+            self.svgname = self.name + ".svg"
+        file = open(self.svgname,'w')
+        file.writelines(self.strarray())
+        file.close()
+        return
+
+    def display(self,prog=display_prog):
+        os.system("%s %s" % (prog,self.svgname))
+        return        
+        
+
+class Line:
+    def __init__(self,start,end):
+        self.start = start #xy tuple
+        self.end = end     #xy tuple
+        return
+
+    def strarray(self):
+        return ["  <line x1=\"%d\" y1=\"%d\" x2=\"%d\" y2=\"%d\" />\n" %\
+                (self.start[0],self.start[1],self.end[0],self.end[1])]
+
+
+class Circle:
+    def __init__(self,center,radius,color):
+        self.center = center #xy tuple
+        self.radius = radius #xy tuple
+        self.color = color   #rgb tuple in range(0,256)
+        return
+
+    def strarray(self):
+        return ["  <circle cx=\"%d\" cy=\"%d\" r=\"%d\"\n" %\
+                (self.center[0],self.center[1],self.radius),
+                "    style=\"fill:%s;\"  />\n" % colorstr(self.color)]
+
+class Rectangle:
+    def __init__(self,origin,height,width,color):
+        self.origin = origin
+        self.height = height
+        self.width = width
+        self.color = color
+        return
+
+    def strarray(self):
+        return ["  <rect x=\"%d\" y=\"%d\" height=\"%d\"\n" %\
+                (self.origin[0],self.origin[1],self.height),
+                "    width=\"%d\" style=\"fill:%s;\" />\n" %\
+                (self.width,colorstr(self.color))]
+
+class Text:
+    def __init__(self,origin,text,color,size=24):
+        self.origin = origin
+        self.text = text
+        self.color = color
+        self.size = size
+        return
+
+    def strarray(self):
+        return ["  <text x=\"%d\" y=\"%d\" stroke=\"%s\" font-size=\"%d\">\n" %\
+                (self.origin[0],self.origin[1],self.color,self.size),
+                "   %s\n" % self.text,
+                "  </text>\n"]
+        
+    
+def colorstr(rgb): return "#%x%x%x" % (rgb[0]/16,rgb[1]/16,rgb[2]/16)
+
+def draw(input_file, width, height):
+    # open the file.
+    file = open(input_file,'rb')
+
+    # accummulate vertex ids, x, y coordinates.
+    vertexes = []
+    vertex_xs = {} 
+    vertex_ys = {}
+
+    for line in file:
+        # find vertex id.
+        start_index = line.find('<',0)  
+        end_index = line.find(',', start_index+1)
+        vertex_id = line[start_index+1 : end_index].strip()
+        # accummulate it.
+        vertexes.append(vertex_id)
+
+        temp_index = end_index+1
+
+        # find x coordinate.
+        start_index = line.find('<x,', temp_index)
+        end_index = line.find('>',start_index+3)
+        # accummulate it.
+        vertex_xs[vertex_id] = line[start_index+3 : end_index].strip()
+
+        # find x coordinate.
+        start_index = line.find('<y,', temp_index)
+        end_index = line.find('>',start_index+3)
+        # accummulate it.
+        vertex_ys[vertex_id] = line[start_index+3 : end_index].strip()
+
+    #for id in vertexes:
+    #    print id + ":" + vertex_xs[id] + "," + vertex_ys[id]
+
+    #print "------------"
+
+    # close the file.
+    file.close()
+    # open again.
+    file = open(input_file,"rb")
+
+    # create a scene.
+    temp_index = input_file.find('.')
+    scene_name = input_file[0:temp_index]
+    scene = Scene(scene_name, ((int)(width)), ((int)(height)))
+
+    for line in file:
+        # find vertex id.
+        start_index = line.find('<',0)  
+        end_index = line.find(',', start_index+1)
+        vertex_id = line[start_index+1 : end_index].strip()
+
+        # determine the coordinates of from end.
+        from_x = ((int)(vertex_xs[vertex_id]))
+        from_y = ((int)(vertex_ys[vertex_id]))
+
+        # find all opposites.
+        # The substring of opposite vertexes.
+        start_index = line.find('<', end_index+1) + 1
+        end_index = line.find('>,', start_index)
+
+        # parse and find out each opposite vertex.
+        ptr1 = start_index
+        while ptr1 != end_index:
+            # find a opposite vertex.
+            ptr2 = line.find(',', ptr1, end_index)
+            if ptr2 == -1:
+                ptr2 = end_index
+                oppo_id = line[ptr1:ptr2].strip()
+                ptr1 = ptr2
+            else:
+                oppo_id = line[ptr1:ptr2].strip()
+                # shift the pointer.
+                ptr1 = ptr2 + 1
+
+            # determine the coordinates of to end.
+            to_x = ((int)(vertex_xs[oppo_id]))
+            to_y = ((int)(vertex_ys[oppo_id]))
+
+            # draw an edge, if necessary.
+            # since we are dealing with undirected graph, we can cut a half off.
+            if vertex_id < oppo_id:
+                scene.add(Line((from_x,from_y),(to_x,to_y)))
+                #print vertex_id + "--->" + oppo_id
+
+    # draw all vertexes, assure that vertex circles is foreground.
+    for id in vertexes:
+        x_coordinate = ((int)(vertex_xs[id]))
+        y_coordinate = ((int)(vertex_ys[id]))
+        scene.add(Circle((x_coordinate, y_coordinate),5,(0,0,255)))
+        #scene.add(Text((x_coordinate-5, y_coordinate+5),id,"yellow",10))
+        scene.add(Text((x_coordinate+5, y_coordinate-5),id,"black",15))
+        #print id + ":" + vertex_xs[id] + "," + vertex_ys[id] 
+
+    scene.write_svg()
+    #scene.display()
+
+    return
+
+# Arguments: input file name; width of frame; height of frame.
+if __name__ == '__main__':
+    if (len(sys.argv)>2):
+        draw(sys.argv[1], sys.argv[2], sys.argv[3]) 
+    else:
+        draw(sys.argv[1], '640', '480')
